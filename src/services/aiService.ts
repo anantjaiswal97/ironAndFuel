@@ -12,6 +12,15 @@ interface NutritionEstimate {
   vitamins: string;
 }
 
+interface WorkoutSummary {
+  title: string;
+  musclesTargeted: string[];
+  estimatedCalories: number;
+  durationMinutes: number;
+  intensity: 'low' | 'moderate' | 'high';
+  notes: string[];
+}
+
 async function callGemini(prompt: string): Promise<string> {
   if (!env.GEMINI_API_KEY) {
     throw new AppError(503, 'AI features not configured', 'AI_DISABLED');
@@ -77,6 +86,81 @@ Be diverse: mix breakfast/lunch/dinner/snacks. Realistic portions.`;
     const arr = JSON.parse(text);
     if (!Array.isArray(arr)) throw new Error('not array');
     return arr;
+  } catch {
+    throw new AppError(502, 'Could not parse AI response');
+  }
+}
+
+export async function summarizeWorkoutPlan(input: {
+  date: string;
+  bodyWeightKg: number;
+  calorieEstimate: number;
+  durationMinutes: number;
+  exercises: Array<{
+    name: string;
+    sets: number;
+    reps: number | null;
+    time: number | null;
+    weight: number;
+    restSec: number;
+  }>;
+}): Promise<WorkoutSummary> {
+  const prompt = `You are a fitness coach for an intermediate Indian home lifter training with dumbbells.
+Summarize this workout plan for ${input.date}.
+
+User body weight: ${input.bodyWeightKg} kg.
+Rough estimate (already computed by app): ${input.calorieEstimate} kcal, ${input.durationMinutes} minutes.
+
+Exercises (each item: name, sets, reps OR time seconds, weight kg, rest seconds):
+${JSON.stringify(input.exercises)}
+
+Return ONLY a JSON object, no markdown, no preamble, with this exact shape:
+{
+  "title": "short plan name",
+  "musclesTargeted": ["..."],
+  "estimatedCalories": number,
+  "durationMinutes": number,
+  "intensity": "low" | "moderate" | "high",
+  "notes": ["2-5 short coaching notes"]
+}
+
+Rules:
+- Keep estimatedCalories close to the provided rough estimate (within ~25% unless clearly wrong).
+- durationMinutes should be realistic (use the provided durationMinutes as anchor).
+- musclesTargeted should be high-level groups (e.g., Chest, Back, Shoulders, Legs, Glutes, Core, Arms).
+- notes should be actionable and brief.`;
+
+  const text = await callGemini(prompt);
+  try {
+    const parsed = JSON.parse(text) as Partial<WorkoutSummary>;
+    const calories = Number(parsed.estimatedCalories);
+    const duration = Number(parsed.durationMinutes);
+    const intensityRaw = String(parsed.intensity || '').toLowerCase();
+    const intensity: WorkoutSummary['intensity'] =
+      intensityRaw === 'low' || intensityRaw === 'high' ? (intensityRaw as any) : 'moderate';
+
+    const muscles = Array.isArray(parsed.musclesTargeted)
+      ? parsed.musclesTargeted.map((m) => String(m).slice(0, 40)).filter(Boolean).slice(0, 10)
+      : [];
+
+    const notes = Array.isArray(parsed.notes)
+      ? parsed.notes.map((n) => String(n).slice(0, 140)).filter(Boolean).slice(0, 5)
+      : [];
+
+    return {
+      title: String(parsed.title || 'Workout Plan').slice(0, 60),
+      musclesTargeted: muscles.length ? muscles : ['Full body'],
+      estimatedCalories: Math.max(
+        0,
+        Math.min(5000, Number.isFinite(calories) ? calories : input.calorieEstimate),
+      ),
+      durationMinutes: Math.max(
+        1,
+        Math.min(300, Number.isFinite(duration) ? duration : input.durationMinutes),
+      ),
+      intensity,
+      notes: notes.length ? notes : ['Warm up 5–8 minutes before you start.'],
+    };
   } catch {
     throw new AppError(502, 'Could not parse AI response');
   }

@@ -23,6 +23,26 @@ const recipesSchema = z.object({
   existing: z.array(z.string()).max(50),
 });
 
+const workoutSummarySchema = z.object({
+  date: z.string().min(8).max(20),
+  bodyWeightKg: z.number().min(20).max(300),
+  calorieEstimate: z.number().min(0).max(5000),
+  durationMinutes: z.number().min(1).max(300),
+  exercises: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(200),
+        sets: z.number().int().min(1).max(20),
+        reps: z.number().int().min(1).max(200).nullable(),
+        time: z.number().int().min(1).max(3600).nullable(),
+        weight: z.number().min(0).max(200),
+        restSec: z.number().int().min(0).max(600),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
 async function estimateController(req: Request, res: Response): Promise<void> {
   const result = await aiService.estimateNutrition(req.body.description);
   res.json({ result });
@@ -33,11 +53,17 @@ async function recipesController(req: Request, res: Response): Promise<void> {
   res.json({ recipes });
 }
 
+async function workoutSummaryController(req: Request, res: Response): Promise<void> {
+  const summary = await aiService.summarizeWorkoutPlan(req.body);
+  res.json({ summary });
+}
+
 const router = Router();
 router.use(requireAuth);
 router.use(aiLimiter);
 
 router.post('/estimate-nutrition', validateBody(estimateSchema), asyncHandler(estimateController));
 router.post('/generate-recipes', validateBody(recipesSchema), asyncHandler(recipesController));
+router.post('/workout-summary', validateBody(workoutSummarySchema), asyncHandler(workoutSummaryController));
 
 export default router;
