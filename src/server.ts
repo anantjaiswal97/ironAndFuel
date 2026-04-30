@@ -21,14 +21,7 @@ async function start(): Promise<void> {
   // Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
   app.use(helmet());
 
-  // CORS: only allow our frontend origin. Without this, any website could call
-  // our API from a user's browser session.
-  app.use(
-    cors({
-      origin: env.FRONTEND_URL,
-      credentials: true,
-    })
-  );
+  app.use(cors({ origin: '*' }));
 
   // Body parsing with size limit (prevents huge-payload DoS)
   app.use(express.json({ limit: '100kb' }));
